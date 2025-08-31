@@ -75,9 +75,9 @@ async def settings_command(_, msg):
     
     # Text on button shows what the user can change to
     if current_mode == "document":
-        button_text = "آپلود بصورت - ویدیو"
-    else:
         button_text = "آپلود بصورت - فایل"
+    else:
+        button_text = "آپلود بصورت - ویدیو"
         
     await msg.reply_text(
         "تنظیمات ربات:",
