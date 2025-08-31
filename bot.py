@@ -297,6 +297,7 @@ async def on_select_format(client, cq):
             last_update_time = now
 
     try:
+        # آپلود بر اساس حالت تنظیم شده در تنظیمات
         if upload_mode == "video":
             await client.send_video(
                 chat_id=cq.message.chat.id,
@@ -304,7 +305,7 @@ async def on_select_format(client, cq):
                 caption=files[0],
                 progress=upload_progress
             )
-        else: # default to document
+        else: # upload_mode == "document"
             await client.send_document(
                 chat_id=cq.message.chat.id,
                 document=file_path,
