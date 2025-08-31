@@ -15,14 +15,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+API_ID = '3335796'
+API_HASH = '138b992a0e672e8346d8439c3f42ea78'
+BOT_TOKEN = '5098580833:AAF_tlEBlp9tkZ2yTl5j-mLL8wnTEF8YsQ0'
+#LOG_CHANNEL = -1001792962793  # مقدار دلخواه
+
+app = Client("okru_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
 
 # in-memory store for extracted formats (for production use DB/cache)
 EXTRACTS = {}  # key -> { "url":..., "title":..., "formats": {fmt_id: {...}} }
-
-app = Client("okru_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # helper to humanize format description
 def fmt_label(f):
