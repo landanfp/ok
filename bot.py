@@ -73,6 +73,7 @@ async def settings_command(_, msg):
     user_id = msg.from_user.id
     current_mode = USER_SETTINGS.get(user_id, "document")
     
+    # Text on button shows what the user can change to
     if current_mode == "document":
         button_text = "آپلود بصورت - ویدیو"
     else:
@@ -91,6 +92,7 @@ async def toggle_upload_mode_callback(_, cq):
     user_id = cq.from_user.id
     current_mode = USER_SETTINGS.get(user_id, "document")
     
+    # Corrected logic
     if current_mode == "document":
         USER_SETTINGS[user_id] = "video"
         new_button_text = "آپلود بصورت - فایل"
@@ -100,14 +102,14 @@ async def toggle_upload_mode_callback(_, cq):
         new_button_text = "آپلود بصورت - ویدیو"
         message = "حالت آپلود به **فایل** تغییر کرد."
     
-    # Edit the message to reflect the new state
-    await cq.message.edit_text(
-        message,
+    # Edit the message's keyboard, not the text
+    await cq.message.edit_reply_markup(
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton(new_button_text, callback_data="toggle_upload_mode")]]
         )
     )
-    await cq.answer("حالت آپلود تغییر کرد.", show_alert=False)
+    # Show message as an answer instead of editing the text
+    await cq.answer(message, show_alert=False)
 
 # handler: messages containing ok.ru (بسته به ورودی کاربر می‌تونید regex سخت‌تری بذارید)
 @app.on_message(filters.private & filters.regex(r"(https?://)?(www\.)?ok\.ru/"))
