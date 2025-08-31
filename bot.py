@@ -50,6 +50,14 @@ def fmt_label(f):
     format_id = f.get("format_id") or ""
     return f"{resolution} — {ext} ({size_s}) - {format_id}"
 
+# helper to format speed
+def format_speed(speed_bytes_per_second):
+    speed_kb = speed_bytes_per_second / 1024
+    if speed_kb >= 1024:
+        return f"{speed_kb / 1024:.2f} MB/s"
+    else:
+        return f"{speed_kb:.2f} KB/s"
+
 # handler: /start
 @app.on_message(filters.command("start"))
 async def start(_, msg):
@@ -183,7 +191,7 @@ async def on_select_format(client, cq):
             last_update = now
             try:
                 percent = (downloaded / total_bytes * 100) if total_bytes else 0
-                text = f"⬇️ دانلود: {title}\nفرمت: {fid}\n{downloaded/(1024*1024):.1f} / {total_bytes/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {speed/1024:.1f} KB/s  ETA: {int(eta)}s"
+                text = f"⬇️ دانلود: {title}\nفرمت: {fid}\n{downloaded/(1024*1024):.1f} / {total_bytes/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}  ETA: {int(eta)}s"
                 asyncio.run_coroutine_threadsafe(status_msg.edit_text(text), loop)
             except Exception:
                 pass
@@ -230,7 +238,7 @@ async def on_select_format(client, cq):
             percent = (current / total * 100) if total else 0
             # محاسبه سرعت آپلود
             speed = (current - last_uploaded_bytes) / (now - last_update_time) if (now - last_update_time) > 0 else 0
-            text = f"⬆️ در حال آپلود: {files[0]}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {speed/1024:.1f} KB/s"
+            text = f"⬆️ در حال آپلود: {files[0]}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}"
             
             await status_msg.edit_text(text)
         except Exception:
