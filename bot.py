@@ -1,33 +1,39 @@
-# bot.py
-# Python 3.10+ recommended
-# Requirements:
-# pip install pyrogram tgcrypto yt-dlp aiofiles python-dotenv
-
 import os
 import uuid
 import asyncio
 import tempfile
+import threading
 from functools import partial
 from yt_dlp import YoutubeDL
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from uvicorn import Config, Server
 
 load_dotenv()
 
-API_ID="3335796"
-API_HASH="138b992a0e672e8346d8439c3f42ea78"
-BOT_TOKEN="1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q"
+API_ID = os.getenv("API_ID", "3335796")
+API_HASH = os.getenv("API_HASH", "138b992a0e672e8346d8439c3f42ea78")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q")
+
+if not all([API_ID, API_HASH, BOT_TOKEN]):
+    raise ValueError("API_ID, API_HASH یا BOT_TOKEN در فایل .env تنظیم نشده‌اند.")
 
 app = Client("okru_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+# FastAPI برای Health Check
+fastapi_app = FastAPI()
 
-# in-memory store for extracted formats (for production use DB/cache)
+@fastapi_app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# در-memory store برای فرمت‌های استخراج‌شده
 EXTRACTS = {}  # key -> { "url":..., "title":..., "formats": {fmt_id: {...}}, "custom_name":... }
 
-# helper to humanize format description
+# تابع کمکی برای خواناتر کردن توضیحات فرمت
 def fmt_label(f):
-    # f is a format dict from yt-dlp
     ext = f.get("ext") or ""
     vcodec = f.get("vcodec") or ""
     acodec = f.get("acodec") or ""
@@ -39,17 +45,15 @@ def fmt_label(f):
     else:
         filesize = f["filesize"]
     if filesize:
-        # bytes to MB
         mb = filesize / (1024*1024)
         size_s = f"{mb:.1f} MB"
     else:
         size_s = "—"
     
-    # improved button label
     format_id = f.get("format_id") or ""
     return f"{resolution} — {ext} ({size_s}) - {format_id}"
 
-# helper to format speed
+# تابع کمکی برای فرمت سرعت
 def format_speed(speed_bytes_per_second):
     speed_kb = speed_bytes_per_second / 1024
     if speed_kb >= 1024:
@@ -57,32 +61,29 @@ def format_speed(speed_bytes_per_second):
     else:
         return f"{speed_kb:.2f} KB/s"
 
-# handler: /start
+# هندلر: /start
 @app.on_message(filters.command("start"))
 async def start(_, msg):
     await msg.reply_text("سلام! لینک ویدیو بفرست تا فرمت‌ها استخراج بشن و بتونی دانلود و آپلود کنی.\nمثال: https://ok.ru/video/....\nبرای تغییر نام فایل، بعد از لینک `|` و نام جدید را اضافه کن.\nمثال: `https://link-to-video.com/video|my_new_video.mp4`")
 
-# handler: messages containing a URL
+# هندلر: پیام‌های حاوی URL
 @app.on_message(filters.private & filters.text)
 async def extract_formats(client, msg):
     full_text = msg.text.strip()
     custom_name = None
     url = full_text
     
-    # Check for custom name syntax
     if "|" in full_text:
         parts = full_text.split("|", 1)
         url = parts[0].strip()
         custom_name = parts[1].strip()
 
     if not url.startswith("http"):
-        # Ignore messages that are not links
         return
 
     processing = await msg.reply_text("⏳ در حال پردازش و استخراج فرمت‌ها...")
     key = str(uuid.uuid4())
     
-    # yt-dlp extract
     ydl_opts = {
         "skip_download": True,
         "quiet": True,
@@ -104,7 +105,6 @@ async def extract_formats(client, msg):
     title = info.get("title", "video")
     formats = info.get("formats", []) or [info]
     
-    # build format map (pick distinct format_id entries and prefer video formats)
     fmts = {}
     for f in formats:
         fid = f.get("format_id") or f.get("format")
@@ -121,10 +121,8 @@ async def extract_formats(client, msg):
             "filesize": f.get("filesize") or f.get("filesize_approx")
         }
     
-    # store in memory
     EXTRACTS[key] = {"url": url, "title": title, "formats": fmts, "user_id": msg.from_user.id, "custom_name": custom_name}
 
-    # build keyboard (limit to first 20 formats to avoid too large keyboard)
     buttons = []
     count = 0
     for fid, meta in fmts.items():
@@ -145,10 +143,10 @@ async def extract_formats(client, msg):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# CallbackQuery handler for format selection
+# هندلر CallbackQuery برای انتخاب فرمت
 @app.on_callback_query(filters.regex(r"^DL\|"))
 async def on_select_format(client, cq):
-    data = cq.data  # "DL|{key}|{format_id}"
+    data = cq.data
     await cq.answer("درخواست دریافت شد. آماده دانلود می‌شوم...", show_alert=False)
     
     try:
@@ -200,7 +198,7 @@ async def on_select_format(client, cq):
                 return
             last_update = now
             try:
-                percent = (downloaded / total_bytes * 100) if total_bytes else 0
+                percent = (downloaded / total_bytes * 100) if total_bytes > 0 else 0
                 text = f"⬇️ دانلود: {title}\nفرمت: {fid}\n{downloaded/(1024*1024):.1f} / {total_bytes/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}  ETA: {int(eta)}s"
                 asyncio.run_coroutine_threadsafe(status_msg.edit_text(text), loop)
             except Exception:
@@ -218,7 +216,6 @@ async def on_select_format(client, cq):
         await loop.run_in_executor(None, download)
     except Exception as e:
         await status_msg.edit_text(f"❌ خطا در دانلود: {e}")
-        # cleanup
         try:
             for f in os.listdir(tmpdir):
                 os.remove(os.path.join(tmpdir, f))
@@ -227,14 +224,12 @@ async def on_select_format(client, cq):
             pass
         return
 
-    # find downloaded file
     files = os.listdir(tmpdir)
     if not files:
         await status_msg.edit_text("❌ فایل دانلود شده پیدا نشد.")
         return
     file_path = os.path.join(tmpdir, files[0])
 
-    # upload with progress
     last_uploaded_bytes = 0
     last_update_time = asyncio.get_event_loop().time()
     async def upload_progress(current, total):
@@ -247,7 +242,6 @@ async def on_select_format(client, cq):
             percent = (current / total * 100) if total else 0
             speed = (current - last_uploaded_bytes) / (now - last_update_time) if (now - last_update_time) > 0 else 0
             text = f"⬆️ در حال آپلود: {file_to_upload_name}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}"
-            
             await status_msg.edit_text(text)
         except Exception:
             pass
@@ -262,7 +256,7 @@ async def on_select_format(client, cq):
         await client.send_document(
             chat_id=cq.message.chat.id,
             document=file_path,
-            caption=f"Video from: {url}",
+            caption=file_to_upload_name,  # تغییر کپشن به نام فایل
             file_name=file_to_upload_name,
             progress=upload_progress
         )
@@ -270,7 +264,6 @@ async def on_select_format(client, cq):
     except Exception as e:
         await status_msg.edit_text(f"❌ خطا در آپلود به تلگرام: {e}")
     finally:
-        # cleanup
         try:
             os.remove(file_path)
             os.rmdir(tmpdir)
@@ -278,6 +271,15 @@ async def on_select_format(client, cq):
             pass
         EXTRACTS.pop(key, None)
 
+# تابع برای اجرای سرور FastAPI در یک نخ جداگانه
+def run_fastapi():
+    port = int(os.getenv("PORT", 8000))  # پورت پیش‌فرض 8000 یا از متغیر محیطی
+    config = Config(app=fastapi_app, host="0.0.0.0", port=port, loop="asyncio")
+    server = Server(config)
+    asyncio.run(server.serve())
+
 if __name__ == "__main__":
-    print("Bot running...")
+    print("Bot and health check server starting...")
+    # اجرای FastAPI در یک نخ جداگانه
+    threading.Thread(target=run_fastapi, daemon=True).start()
     app.run()
