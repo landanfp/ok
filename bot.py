@@ -17,7 +17,7 @@ load_dotenv()
 
 API_ID = '3335796'
 API_HASH = '138b992a0e672e8346d8439c3f42ea78'
-BOT_TOKEN = '5088657122:AAG0WWBVTcR_pg8Lxb719nyfUqaGq1IZdk4'
+BOT_TOKEN = '1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q'
 #LOG_CHANNEL = -1001792962793  # مقدار دلخواه
 
 app = Client("okru_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -127,9 +127,7 @@ async def on_select_format(client, cq):
     data = cq.data  # "DL|{key}|{format_id}"
     await cq.answer("درخواست دریافت شد. آماده دانلود می‌شوم...", show_alert=False)
     
-    # دکمه‌های انتخاب فرمت را بلافاصله حذف می‌کنیم
-    await cq.message.edit_reply_markup(reply_markup=None)
-
+    # پیام عنوان و دکمه‌ها با پیام وضعیت دانلود جایگزین می‌شود
     try:
         _, key, fid = data.split("|", 2)
     except Exception:
@@ -163,8 +161,10 @@ async def on_select_format(client, cq):
         # progress hook
         "progress_hooks": [],
     }
+    
+    status_msg = cq.message # از همین پیام برای نمایش وضعیت دانلود استفاده می‌کنیم
+    await status_msg.edit_text(f"⬇️ شروع دانلود: {title}\nفرمت: {fid}\nدر حال دانلود ...")
 
-    status_msg = await cq.message.reply_text(f"⬇️ شروع دانلود: {title}\nفرمت: {fid}\nدر حال دانلود ...")
     loop = asyncio.get_event_loop()
     # progress hook to edit message periodically
     last_update = 0
