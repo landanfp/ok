@@ -15,20 +15,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_ID = '3335796'
-API_HASH = '138b992a0e672e8346d8439c3f42ea78'
-BOT_TOKEN = '1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q'
-#LOG_CHANNEL = -1001792962793  # مقدار دلخواه
+API_ID="3335796"
+API_HASH="138b992a0e672e8346d8439c3f42ea78"
+BOT_TOKEN="1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q"
 
 app = Client("okru_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 
 # in-memory store for extracted formats (for production use DB/cache)
-EXTRACTS = {}  # key -> { "url":..., "title":..., "formats": {fmt_id: {...}} }
-
-# in-memory store for user settings (upload mode)
-# Default is 'document'
-USER_SETTINGS = {} # {user_id: "document" or "video"}
+EXTRACTS = {}  # key -> { "url":..., "title":..., "formats": {fmt_id: {...}}, "custom_name":... }
 
 # helper to humanize format description
 def fmt_label(f):
@@ -50,7 +45,7 @@ def fmt_label(f):
     else:
         size_s = "—"
     
-    # عنوان دکمه بهبود یافته
+    # improved button label
     format_id = f.get("format_id") or ""
     return f"{resolution} — {ext} ({size_s}) - {format_id}"
 
@@ -65,58 +60,28 @@ def format_speed(speed_bytes_per_second):
 # handler: /start
 @app.on_message(filters.command("start"))
 async def start(_, msg):
-    await msg.reply_text("سلام! لینک ok.ru بفرست تا فرمت‌ها استخراج بشن و بتونی دانلود و آپلود کنی.\nمثال: https://ok.ru/video/....")
+    await msg.reply_text("سلام! لینک ویدیو بفرست تا فرمت‌ها استخراج بشن و بتونی دانلود و آپلود کنی.\nمثال: https://ok.ru/video/....\nبرای تغییر نام فایل، بعد از لینک `|` و نام جدید را اضافه کن.\nمثال: `https://link-to-video.com/video|my_new_video.mp4`")
 
-# handler: /settings
-@app.on_message(filters.command("settings"))
-async def settings_command(_, msg):
-    user_id = msg.from_user.id
-    current_mode = USER_SETTINGS.get(user_id, "document")
-    
-    # Text on button shows what the user can change to
-    if current_mode == "document":
-        button_text = "آپلود بصورت - فایل"
-    else:
-        button_text = "آپلود بصورت - ویدیو"
-        
-    await msg.reply_text(
-        "تنظیمات ربات:",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton(button_text, callback_data="toggle_upload_mode")]]
-        )
-    )
-
-# CallbackQuery handler for settings
-@app.on_callback_query(filters.regex(r"^toggle_upload_mode"))
-async def toggle_upload_mode_callback(_, cq):
-    user_id = cq.from_user.id
-    current_mode = USER_SETTINGS.get(user_id, "document")
-    
-    # Corrected logic
-    if current_mode == "document":
-        USER_SETTINGS[user_id] = "video"
-        new_button_text = "آپلود بصورت - فایل"
-        message = "حالت آپلود به **ویدیو** تغییر کرد."
-    else:
-        USER_SETTINGS[user_id] = "document"
-        new_button_text = "آپلود بصورت - ویدیو"
-        message = "حالت آپلود به **فایل** تغییر کرد."
-    
-    # Edit the message's keyboard, not the text
-    await cq.message.edit_reply_markup(
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton(new_button_text, callback_data="toggle_upload_mode")]]
-        )
-    )
-    # Show message as an answer instead of editing the text
-    await cq.answer(message, show_alert=False)
-
-# handler: messages containing ok.ru (بسته به ورودی کاربر می‌تونید regex سخت‌تری بذارید)
-@app.on_message(filters.private & filters.regex(r"(https?://)?(www\.)?ok\.ru/"))
+# handler: messages containing a URL
+@app.on_message(filters.private & filters.text)
 async def extract_formats(client, msg):
-    url = (msg.text or "").strip()
+    full_text = msg.text.strip()
+    custom_name = None
+    url = full_text
+    
+    # Check for custom name syntax
+    if "|" in full_text:
+        parts = full_text.split("|", 1)
+        url = parts[0].strip()
+        custom_name = parts[1].strip()
+
+    if not url.startswith("http"):
+        # Ignore messages that are not links
+        return
+
     processing = await msg.reply_text("⏳ در حال پردازش و استخراج فرمت‌ها...")
     key = str(uuid.uuid4())
+    
     # yt-dlp extract
     ydl_opts = {
         "skip_download": True,
@@ -125,9 +90,11 @@ async def extract_formats(client, msg):
         "format": "best",
     }
     loop = asyncio.get_event_loop()
+    
     def extract():
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url, download=False)
+            
     try:
         info = await loop.run_in_executor(None, extract)
     except Exception as e:
@@ -136,13 +103,13 @@ async def extract_formats(client, msg):
 
     title = info.get("title", "video")
     formats = info.get("formats", []) or [info]
+    
     # build format map (pick distinct format_id entries and prefer video formats)
     fmts = {}
     for f in formats:
         fid = f.get("format_id") or f.get("format")
         if not fid:
             continue
-        # avoid duplicate keys
         if fid in fmts:
             continue
         fmts[fid] = {
@@ -153,8 +120,9 @@ async def extract_formats(client, msg):
             "resolution": f.get("format_note") or f.get("resolution"),
             "filesize": f.get("filesize") or f.get("filesize_approx")
         }
+    
     # store in memory
-    EXTRACTS[key] = {"url": url, "title": title, "formats": fmts, "user_id": msg.from_user.id}
+    EXTRACTS[key] = {"url": url, "title": title, "formats": fmts, "user_id": msg.from_user.id, "custom_name": custom_name}
 
     # build keyboard (limit to first 20 formats to avoid too large keyboard)
     buttons = []
@@ -183,7 +151,6 @@ async def on_select_format(client, cq):
     data = cq.data  # "DL|{key}|{format_id}"
     await cq.answer("درخواست دریافت شد. آماده دانلود می‌شوم...", show_alert=False)
     
-    # پیام عنوان و دکمه‌ها با پیام وضعیت دانلود جایگزین می‌شود
     try:
         _, key, fid = data.split("|", 2)
     except Exception:
@@ -197,32 +164,28 @@ async def on_select_format(client, cq):
 
     url = record["url"]
     title = record["title"]
-    # create temp dir + out template
+    custom_name = record.get("custom_name")
+
     tmpdir = tempfile.mkdtemp(prefix="okru_dl_")
     outtmpl = os.path.join(tmpdir, "%(title)s.%(ext)s")
 
-    # Use aria2c if installed for parallel download (increase speed) — optional
     ydl_opts = {
         "format": fid,
         "outtmpl": outtmpl,
         "noplaylist": True,
         "no_warnings": True,
         "quiet": True,
-        # try to speed up (if aria2c available)
         "external_downloader": "aria2c",
         "external_downloader_args": ["-x", "16", "-s", "16", "--file-allocation=none"],
-        # ensure partial files are kept until completion
         "continuedl": True,
         "concurrent_fragment_downloads": 4,
-        # progress hook
         "progress_hooks": [],
     }
     
-    status_msg = cq.message # از همین پیام برای نمایش وضعیت دانلود استفاده می‌کنیم
+    status_msg = cq.message
     await status_msg.edit_text(f"⬇️ شروع دانلود: {title}\nفرمت: {fid}\nدر حال دانلود ...")
 
     loop = asyncio.get_event_loop()
-    # progress hook to edit message periodically
     last_update = 0
     def progress_hook(d):
         nonlocal last_update
@@ -233,7 +196,6 @@ async def on_select_format(client, cq):
             speed = d.get("speed") or 0
             eta = d.get("eta") or 0
             now = asyncio.get_event_loop().time()
-            # limit updates to once per 5s
             if now - last_update < 5:
                 return
             last_update = now
@@ -270,26 +232,21 @@ async def on_select_format(client, cq):
     if not files:
         await status_msg.edit_text("❌ فایل دانلود شده پیدا نشد.")
         return
-    file_path = os.path.join(tmpdir, files[0])  # usually single file
+    file_path = os.path.join(tmpdir, files[0])
 
-    # check upload mode
-    upload_mode = USER_SETTINGS.get(cq.from_user.id, "document")
-    
     # upload with progress
     last_uploaded_bytes = 0
     last_update_time = asyncio.get_event_loop().time()
     async def upload_progress(current, total):
         nonlocal last_uploaded_bytes, last_update_time
         now = asyncio.get_event_loop().time()
-        # limit updates to once per 5s
         if now - last_update_time < 5 and current != total:
             return
         
         try:
             percent = (current / total * 100) if total else 0
-            # محاسبه سرعت آپلود
             speed = (current - last_uploaded_bytes) / (now - last_update_time) if (now - last_update_time) > 0 else 0
-            text = f"⬆️ در حال آپلود: {files[0]}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}"
+            text = f"⬆️ در حال آپلود: {file_to_upload_name}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {format_speed(speed)}"
             
             await status_msg.edit_text(text)
         except Exception:
@@ -298,34 +255,27 @@ async def on_select_format(client, cq):
             last_uploaded_bytes = current
             last_update_time = now
 
+    file_to_upload_name = custom_name if custom_name else files[0]
+    await status_msg.edit_text(f"⬆️ شروع آپلود: {file_to_upload_name}")
+
     try:
-        # آپلود بر اساس حالت تنظیم شده در تنظیمات
-        if upload_mode == "video":
-            await client.send_video(
-                chat_id=cq.message.chat.id,
-                video=file_path,
-                caption=files[0],
-                progress=upload_progress
-            )
-        else: # upload_mode == "document"
-            await client.send_document(
-                chat_id=cq.message.chat.id,
-                document=file_path,
-                caption=files[0],
-                progress=upload_progress
-            )
+        await client.send_document(
+            chat_id=cq.message.chat.id,
+            document=file_path,
+            caption=f"Video from: {url}",
+            file_name=file_to_upload_name,
+            progress=upload_progress
+        )
         await status_msg.edit_text("✅ آپلود کامل شد. فایل ارسال شد.")
     except Exception as e:
         await status_msg.edit_text(f"❌ خطا در آپلود به تلگرام: {e}")
     finally:
         # cleanup
         try:
-            for f in os.listdir(tmpdir):
-                os.remove(os.path.join(tmpdir, f))
+            os.remove(file_path)
             os.rmdir(tmpdir)
         except Exception:
             pass
-        # optionally remove mapping so callback cannot be reused
         EXTRACTS.pop(key, None)
 
 if __name__ == "__main__":
