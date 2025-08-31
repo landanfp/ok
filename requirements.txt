@@ -3,3 +3,5 @@ tgcrypto
 yt-dlp
 aiofiles
 python-dotenv
+uvicorn
+fastapi
