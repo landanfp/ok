@@ -47,7 +47,8 @@ def fmt_label(f):
         size_s = "—"
     
     # عنوان دکمه بهبود یافته
-    return f"{resolution} - {ext} ({size_s})"
+    format_id = f.get("format_id") or ""
+    return f"{resolution} — {ext} ({size_s}) - {format_id}"
 
 # handler: /start
 @app.on_message(filters.command("start"))
@@ -155,10 +156,37 @@ async def on_select_format(client, cq):
         # ensure partial files are kept until completion
         "continuedl": True,
         "concurrent_fragment_downloads": 4,
+        # progress hook
+        "progress_hooks": [],
     }
 
     status_msg = await cq.message.reply_text(f"⬇️ شروع دانلود: {title}\nفرمت: {fid}\nدر حال دانلود ...")
     loop = asyncio.get_event_loop()
+    # progress hook to edit message periodically
+    last_update = 0
+    def progress_hook(d):
+        nonlocal last_update
+        status = d.get("status")
+        if status == "downloading":
+            total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded = d.get("downloaded_bytes") or 0
+            speed = d.get("speed") or 0
+            eta = d.get("eta") or 0
+            now = asyncio.get_event_loop().time()
+            # limit updates to once per 5s
+            if now - last_update < 5:
+                return
+            last_update = now
+            try:
+                percent = (downloaded / total_bytes * 100) if total_bytes else 0
+                text = f"⬇️ دانلود: {title}\nفرمت: {fid}\n{downloaded/(1024*1024):.1f} / {total_bytes/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {speed/1024:.1f} KB/s  ETA: {int(eta)}s"
+                asyncio.run_coroutine_threadsafe(status_msg.edit_text(text), loop)
+            except Exception:
+                pass
+        elif status == "finished":
+            asyncio.run_coroutine_threadsafe(status_msg.edit_text("✅ دانلود کامل شد؛ در حال آماده‌سازی برای آپلود..."), loop)
+
+    ydl_opts["progress_hooks"].append(progress_hook)
 
     def download():
         with YoutubeDL(ydl_opts) as ydl:
@@ -166,7 +194,6 @@ async def on_select_format(client, cq):
 
     try:
         await loop.run_in_executor(None, download)
-        await status_msg.edit_text("✅ دانلود کامل شد؛ در حال آماده‌سازی برای آپلود...")
     except Exception as e:
         await status_msg.edit_text(f"❌ خطا در دانلود: {e}")
         # cleanup
@@ -198,7 +225,7 @@ async def on_select_format(client, cq):
         await client.send_document(
             chat_id=cq.message.chat.id,
             document=file_path,
-            caption=f"{title}\nفرمت: {fid}",
+            caption=files[0], # فقط نام فایل در کپشن نمایش داده می‌شود
             progress=upload_progress
         )
         await status_msg.edit_text("✅ آپلود کامل شد. فایل ارسال شد.")
