@@ -45,6 +45,8 @@ def fmt_label(f):
         size_s = f"{mb:.1f} MB"
     else:
         size_s = "—"
+    
+    # تغییر اینجا اعمال شده تا عنوان دکمه بهتر نمایش داده شود
     return f"{resolution} — {ext} — {size_s}"
 
 # handler: /start
@@ -218,23 +220,13 @@ async def on_select_format(client, cq):
             pass
 
     try:
-        # choose send_video if it's a video, else send_document
-        # simple check by extension
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in [".mp4", ".mkv", ".webm", ".mov", ".avi"]:
-            await client.send_video(
-                chat_id=cq.message.chat.id,
-                video=file_path,
-                caption=f"{title}\nفرمت: {fid}",
-                progress=upload_progress
-            )
-        else:
-            await client.send_document(
-                chat_id=cq.message.chat.id,
-                document=file_path,
-                caption=f"{title}\nفرمت: {fid}",
-                progress=upload_progress
-            )
+        # تغییر در اینجا اعمال شده تا فایل همیشه به صورت داکیومنت آپلود شود
+        await client.send_document(
+            chat_id=cq.message.chat.id,
+            document=file_path,
+            caption=f"{title}\nفرمت: {fid}",
+            progress=upload_progress
+        )
         await status_msg.edit_text("✅ آپلود کامل شد. فایل ارسال شد.")
     except Exception as e:
         await status_msg.edit_text(f"❌ خطا در آپلود به تلگرام: {e}")
