@@ -126,6 +126,10 @@ async def extract_formats(client, msg):
 async def on_select_format(client, cq):
     data = cq.data  # "DL|{key}|{format_id}"
     await cq.answer("درخواست دریافت شد. آماده دانلود می‌شوم...", show_alert=False)
+    
+    # دکمه‌های انتخاب فرمت را بلافاصله حذف می‌کنیم
+    await cq.message.edit_reply_markup(reply_markup=None)
+
     try:
         _, key, fid = data.split("|", 2)
     except Exception:
@@ -213,12 +217,27 @@ async def on_select_format(client, cq):
     file_path = os.path.join(tmpdir, files[0])  # usually single file
 
     # upload with progress
+    last_uploaded_bytes = 0
+    last_update_time = asyncio.get_event_loop().time()
     async def upload_progress(current, total):
+        nonlocal last_uploaded_bytes, last_update_time
+        now = asyncio.get_event_loop().time()
+        # limit updates to once per 5s
+        if now - last_update_time < 5 and current != total:
+            return
+        
         try:
             percent = (current / total * 100) if total else 0
-            await status_msg.edit_text(f"⬆️ در حال آپلود: {files[0]}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)")
+            # محاسبه سرعت آپلود
+            speed = (current - last_uploaded_bytes) / (now - last_update_time) if (now - last_update_time) > 0 else 0
+            text = f"⬆️ در حال آپلود: {files[0]}\n{current/(1024*1024):.1f}/{total/(1024*1024):.1f} MB ({percent:.1f}%)\nسرعت: {speed/1024:.1f} KB/s"
+            
+            await status_msg.edit_text(text)
         except Exception:
             pass
+        finally:
+            last_uploaded_bytes = current
+            last_update_time = now
 
     try:
         # فایل همیشه به صورت داکیومنت آپلود می‌شود
