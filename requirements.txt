@@ -5,3 +5,4 @@ aiofiles
 python-dotenv
 uvicorn
 fastapi
+Redis
