@@ -279,21 +279,25 @@ def run_fastapi():
     server = Server(config)
     asyncio.run(server.serve())
 
-@app.on_startup()
-async def on_startup():
-    global redis_client
-    redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), 
-                               port=os.getenv("REDIS_PORT", 6379), 
-                               db=int(os.getenv("REDIS_DB", 0)), 
-                               decode_responses=True)
-    await redis_client.ping()
-    print("Connected to Redis successfully!")
-
-@app.on_shutdown()
-async def on_shutdown():
-    await redis_client.close()
-
 if __name__ == "__main__":
     print("Bot and health check server starting...")
+    loop = asyncio.get_event_loop()
+    try:
+        redis_client = loop.run_until_complete(redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), 
+                                                           port=os.getenv("REDIS_PORT", 6379), 
+                                                           db=int(os.getenv("REDIS_DB", 0)), 
+                                                           decode_responses=True))
+        loop.run_until_complete(redis_client.ping())
+        print("Connected to Redis successfully!")
+    except Exception as e:
+        print(f"Error connecting to Redis: {e}")
+        redis_client = None
+
     threading.Thread(target=run_fastapi, daemon=True).start()
-    app.run()
+    
+    try:
+        app.run()
+    finally:
+        if redis_client:
+            loop.run_until_complete(redis_client.close())
+            print("Redis connection closed.")
