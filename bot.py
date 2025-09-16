@@ -19,9 +19,10 @@ from uvicorn import Config, Server
 load_dotenv()
 
 # --- Constants ---
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = os.getenv("API_ID", "3335796")
+API_HASH = os.getenv("API_HASH", "138b992a0e672e8346d8439c3f42ea78")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "1806450812:AAGhHSWPd3sH5SVFBB8_Xadw_SbdbvZm0_Q")
+
 PORT = int(os.getenv("PORT", 8000))
 REQUEST_TTL = 3600  # 1 hour expiration for format selection
 
